@@ -8,10 +8,34 @@
 - count_word_frequency: 统计词频
 """
 
+import re
+import unicodedata
 from typing import Dict, List, Tuple, Optional, Callable
 
 from trendradar.core.frequency import matches_word_groups, _word_matches
 from trendradar.utils.time import DEFAULT_TIMEZONE
+
+
+def _normalize_title(text: str) -> str:
+    """归一化标题：全角转半角、去空白与标点、转小写，便于比较。"""
+    t = unicodedata.normalize("NFKC", str(text)).lower()
+    return re.sub(r"[\s\W_]+", "", t)
+
+
+def _is_cross_platform_duplicate(norm: str, seen: List[str]) -> bool:
+    """判断是否为跨平台重复标题。
+
+    只合并两种情况，避免把「降准」「降息」这类一字之差的不同新闻误合并：
+      1. 归一化后完全相同
+      2. 一条完整包含另一条，且长度比 >= 0.8（如「XX发布新品」与「XX发布新品 官方回应」）
+    """
+    for other in seen:
+        if norm == other:
+            return True
+        short, longer = (norm, other) if len(norm) <= len(other) else (other, norm)
+        if len(short) >= 10 and short in longer and len(short) / len(longer) >= 0.8:
+            return True
+    return False
 
 
 def calculate_news_weight(
@@ -214,6 +238,8 @@ def count_word_frequency(
     total_titles = 0
     processed_titles = {}
     matched_new_count = 0
+    seen_norms: List[str] = []
+    dedup_dropped = 0
 
     if title_info is None:
         title_info = {}
@@ -241,6 +267,13 @@ def count_word_frequency(
 
             if not matches_frequency_words:
                 continue
+
+            # 跨平台近似去重：同一事件常被多个平台同时挂榜
+            norm_title = _normalize_title(title)
+            if _is_cross_platform_duplicate(norm_title, seen_norms):
+                dedup_dropped += 1
+                continue
+            seen_norms.append(norm_title)
 
             # 如果是增量模式或 current 模式第一次，统计匹配的新增新闻数量
             if (mode == "incremental" and all_news_are_new) or (
@@ -367,6 +400,8 @@ def count_word_frequency(
                 break
 
     # 最后统一打印汇总信息
+    if dedup_dropped:
+        print(f"[去重] 合并跨平台重复标题 {dedup_dropped} 条")
     if mode == "incremental":
         if is_first_today:
             total_input_news = sum(len(titles) for titles in results.values())
