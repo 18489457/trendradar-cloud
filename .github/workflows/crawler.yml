@@ -134,7 +134,49 @@ jobs:
           S3_ENDPOINT_URL: ${{ secrets.S3_ENDPOINT_URL }}
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
-        run: uv run python -m trendradar
+        run: |
+          set -o pipefail
+          uv run python -m trendradar 2>&1 | tee crawler.log
+
+      # --------------------------------------------------------------------------------
+      # 🩺 HEALTH CHECK / 静默失效监控
+      #   跑成功但"0 条匹配"或"大面积挂源"也会告警，避免无声失效
+      # --------------------------------------------------------------------------------
+      - name: Health check
+        if: success()
+        env:
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, sys, urllib.request
+          log = open("crawler.log", encoding="utf-8", errors="replace").read()
+          m = re.search(r"成功: \[(.*?)\], 失败: \[(.*?)\]", log)
+          def count(blob):
+              return len([x for x in re.split(r",\s*", (blob or "").strip(" '")) if x.strip(" '")])
+          ok = count(m.group(1)) if m else -1
+          bad = count(m.group(2)) if m else -1
+          hot = max([int(x) for x in re.findall(r"有 (\d+) 条频率词匹配", log)] or [0])
+          rss = max([int(x) for x in re.findall(r"关键词分组统计：(\d+)/", log)] or [0])
+          dedup = re.findall(r"\[去重\] 合并跨平台重复标题 (\d+) 条", log)
+          print(f"平台成功 {ok} / 失败 {bad}；热榜匹配 {hot}，RSS 匹配 {rss}，去重合并 {dedup[0] if dedup else 0}")
+          problems = []
+          if ok <= 0:
+              problems.append("没有任何平台抓取成功")
+          if bad >= 5:
+              problems.append(f"失败平台过多（{bad} 个）")
+          if hot + rss == 0:
+              problems.append("关键词匹配 0 条，词表可能需要调整")
+          if not problems:
+              sys.exit(0)
+          text = "⚠️ TrendRadar 数据异常\n" + "\n".join("- " + x for x in problems) + f"\n平台成功 {ok}/失败 {bad}，匹配 {hot}+{rss}"
+          hook = os.environ.get("FEISHU_WEBHOOK_URL", "")
+          if hook:
+              body = json.dumps({"msg_type": "text", "content": {"text": text}}).encode()
+              req = urllib.request.Request(hook, data=body, headers={"Content-Type": "application/json"})
+              urllib.request.urlopen(req, timeout=20).read()
+          print("已发送异常告警：" + "; ".join(problems))
+          sys.exit(0)
+          PY
 
       # --------------------------------------------------------------------------------
       # 🌐 GITHUB PAGES / 部署网页报告（无需额外凭证，手机可直接打开）
