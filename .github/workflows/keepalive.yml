@@ -1,0 +1,31 @@
+name: Keep Alive
+
+# 目的：GitHub 会在仓库连续 60 天无提交时自动停用定时工作流。
+# 这个工作流每月提交一次时间戳文件，让仓库保持活跃。
+
+on:
+  schedule:
+    - cron: "0 1 1 * *" # 每月 1 日 UTC 01:00 = 北京时间 09:00
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Commit timestamp
+        run: |
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- .keepalive; then
+            echo "无变化，跳过提交"
+            exit 0
+          fi
+          git add .keepalive
+          git commit -m "chore: keepalive $(date -u +%F)"
+          git push
