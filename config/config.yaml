@@ -143,6 +143,22 @@ rss:
       url: "https://www.panewslab.com/rss.xml"
       max_age_days: 2                 # 该站更新频繁，放宽到 2 天
 
+    # 英文一手加密源：AI 翻译会把标题译成中文（ai_translation.scope.rss）
+    - id: "cointelegraph"
+      name: "Cointelegraph"
+      url: "https://cointelegraph.com/rss"
+      max_age_days: 1
+
+    - id: "decrypt"
+      name: "Decrypt"
+      url: "https://decrypt.co/feed"
+      max_age_days: 1
+
+    - id: "theblock"
+      name: "The Block"
+      url: "https://www.theblock.co/rss.xml"
+      max_age_days: 1
+
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
@@ -186,7 +202,7 @@ report:
 
   rank_threshold: 5                   # 排名高亮阈值（影响展示强调，不改变抓取范围）
 
-  max_news_per_keyword: 0             # 每个关键词/标签最大显示数量（0=不限制，仅影响展示裁剪）
+  max_news_per_keyword: 8             # 每个关键词/标签最大显示数量（0=不限制，仅影响展示裁剪）
 
 
 # ===============================================================
@@ -284,7 +300,7 @@ notification:
   # 推送渠道配置
   channels:
     feishu:
-      webhook_url: ""                 # 飞书 webhook —— 云端用 Secret FEISHU_WEBHOOK_URL 注入
+      webhook_url: ""   # 飞书机器人 webhook URL
 
     dingtalk:
       webhook_url: ""                 # 钉钉机器人 webhook URL
@@ -385,7 +401,7 @@ ai:
 
   model: "deepseek/deepseek-v4-flash"
 
-  api_key: ""                       # API Key —— 云端用 Secret AI_API_KEY 注入，不要写在这里
+  api_key: ""   # API Key（建议使用环境变量 AI_API_KEY）
   
   api_base: ""                      # 自定义 API 地址（可选，绝大多数情况留空即可）
                                     #
@@ -410,14 +426,14 @@ ai:
 
   timeout: 120                      # 请求超时（秒）
 
-  temperature: 1.0                  # 采样温度 (0.0-2.0)
+  temperature: 0.3                  # 采样温度 (0.0-2.0)  —— 0.3：投研结论稳定，不要频繁变动
                                     # 注意：部分模型(如 gpt-5)可能要求必须为 1.0，否则会报错
   
   max_tokens: 5000                  # 最大生成 token 数
                                     # 注意：如果 API 不支持此参数(报 HTTP 400)，请设为 0 以禁用发送
   # 高级选项
-  num_retries: 1                    # 失败重试次数
-  fallback_models: []               # 备用模型列表（可选）
+  num_retries: 2                    # 失败重试次数
+  fallback_models: ["deepseek/deepseek-v4-pro"]   # 备用模型（主模型失败时重试）
                                     # 示例: ["openai/gpt-4o-mini", "openai/deepseek-ai/DeepSeek-V3"]
 
   # 额外参数（一般无需修改，删掉 # 号即可启用）
@@ -462,7 +478,7 @@ ai_analysis:
 # 对推送标题进行翻译，不包含 AI 分析的内容
 # ===============================================================
 ai_translation:
-  enabled: false                    # 是否启用翻译功能（true=启用, false=关闭）
+  enabled: true                    # 是否启用翻译功能（true=启用, false=关闭）
   language: "中文"                   # 翻译目标语言（如 "English", "Korean", "法语"）
   prompt_file: "ai_translation_prompt.txt"   # 提示词文件（相对于 config 目录）
 
