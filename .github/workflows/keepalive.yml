@@ -22,10 +22,10 @@ jobs:
           date -u +"%Y-%m-%dT%H:%M:%SZ" > .keepalive
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- .keepalive; then
+          git add -A .keepalive
+          if git diff --cached --quiet; then
             echo "无变化，跳过提交"
             exit 0
           fi
-          git add .keepalive
           git commit -m "chore: keepalive $(date -u +%F)"
           git push
