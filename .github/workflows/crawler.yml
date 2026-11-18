@@ -35,7 +35,8 @@ on:
     #   "15 * * * *"     → 每小时第15分钟 / minute 15 every hour
     #   "30 0-14 * * *"  → 北京时间 8:00-22:00 每小时第30分钟 / Beijing 8am-10pm
     #
-    - cron: "0 23 * * *"
+    - cron: "17 23 * * *"   # 北京 07:17（避整点，GitHub 整点负载高容易丢）
+    - cron: "17 0 * * *"    # 北京 08:17（兜底补跑；若已推送会自动跳过）
 
   workflow_dispatch:
 
@@ -45,6 +46,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -70,7 +72,7 @@ jobs:
       # CN: 生成 1 到 300 秒（5分钟）之间的随机延迟。
       #     这对负载均衡至关重要。
       # - name: Random Delay (Traffic Control)
-      #   if: success()
+      #   if: success() && steps.guard.outputs.skip != 'true'
       #   run: |
       #     echo "🎲 Traffic Control: Generating random delay..."
       #     DELAY=$(( ( RANDOM % 300 )  + 1 ))
@@ -78,22 +80,57 @@ jobs:
       #     sleep ${DELAY}s
       #     echo "▶️  Delay finished. Starting crawler..."
 
+      # --------------------------------------------------------------------------------
+      # 🛡 DUPLICATE GUARD / 定时补跑守卫
+      #   两个 cron 窗口，若近 6 小时内已有成功运行，则本次直接跳过（手动触发不受限制）
+      # --------------------------------------------------------------------------------
+      - name: Check duplicate scheduled run
+        if: github.event_name == 'schedule'
+        id: guard
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          from datetime import datetime, timedelta, timezone
+          token = os.environ["GITHUB_TOKEN"]
+          repo = os.environ["GITHUB_REPOSITORY"]
+          run_id = os.environ["GITHUB_RUN_ID"]
+          url = f"https://api.github.com/repos/{repo}/actions/workflows/crawler.yml/runs?per_page=30"
+          req = urllib.request.Request(url, headers={
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/vnd.github+json",
+              "User-Agent": "trendradar-guard"})
+          data = json.load(urllib.request.urlopen(req, timeout=30))
+          cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+          recent = []
+          for r in data.get("workflow_runs", []):
+              if str(r["id"]) == run_id or r.get("conclusion") != "success":
+                  continue
+              created = datetime.strptime(r["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+              if created > cutoff:
+                  recent.append(r)
+          print(f"近 6 小时内的成功运行: {len(recent)} 次")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write("skip=%s\n" % ("true" if recent else "false"))
+          PY
+
       - name: Set up Python
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install uv
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         uses: astral-sh/setup-uv@v7
 
       - name: Install dependencies
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         run: uv sync --frozen --no-dev
 
       - name: Verify required files
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         run: |
           if [ ! -f config/config.yaml ]; then
             echo "Error: Config missing"
@@ -101,7 +138,7 @@ jobs:
           fi
 
       - name: Run crawler
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -143,7 +180,7 @@ jobs:
       #   跑成功但"0 条匹配"或"大面积挂源"也会告警，避免无声失效
       # --------------------------------------------------------------------------------
       - name: Health check
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         env:
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
         run: |
@@ -183,7 +220,7 @@ jobs:
       #   访问地址: https://<用户名>.github.io/<仓库名>/
       # --------------------------------------------------------------------------------
       - name: Prepare Pages assets
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         run: |
           rm -rf pages_dist && mkdir -p pages_dist
           if [ -f output/html/latest/current.html ]; then
@@ -196,17 +233,17 @@ jobs:
           ls -lh pages_dist
 
       - name: Configure Pages
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         uses: actions/configure-pages@v5
 
       - name: Upload Pages artifact
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         uses: actions/upload-pages-artifact@v3
         with:
           path: pages_dist
 
       - name: Deploy to GitHub Pages
-        if: success()
+        if: success() && steps.guard.outputs.skip != 'true'
         id: pages_deploy
         uses: actions/deploy-pages@v4
 
