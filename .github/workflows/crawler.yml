@@ -39,6 +39,11 @@ on:
     - cron: "17 0 * * *"    # 北京 08:17（兜底补跑；若已推送会自动跳过）
 
   workflow_dispatch:
+    inputs:
+      force:
+        description: "强制运行（跳过 6 小时去重检查）"
+        type: boolean
+        default: false
 
 concurrency:
   group: crawler-${{ github.ref_name }}
@@ -81,11 +86,12 @@ jobs:
       #     echo "▶️  Delay finished. Starting crawler..."
 
       # --------------------------------------------------------------------------------
-      # 🛡 DUPLICATE GUARD / 定时补跑守卫
-      #   两个 cron 窗口，若近 6 小时内已有成功运行，则本次直接跳过（手动触发不受限制）
+      # 🛡 DUPLICATE GUARD / 补跑去重守卫
+      #   定时触发或外部定时服务触发的 dispatch：近 6 小时内已有成功运行则跳过；
+      #   手动在网页点 Run workflow 且勾选 force 时强制执行。
       # --------------------------------------------------------------------------------
       - name: Check duplicate scheduled run
-        if: github.event_name == 'schedule'
+        if: github.event_name == 'schedule' || github.event.inputs.force != 'true'
         id: guard
         env:
           GITHUB_TOKEN: ${{ github.token }}
