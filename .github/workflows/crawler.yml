@@ -86,8 +86,8 @@ jobs:
 
       # --------------------------------------------------------------------------------
       # 🛡 DUPLICATE GUARD / 补跑去重守卫
-      #   定时触发或外部定时服务触发的 dispatch：近 6 小时内已有成功运行则跳过；
-      #   手动在网页点 Run workflow 且勾选 force 时强制执行。
+      #   定时触发或外部定时服务触发的 dispatch：同一北京日内已有成功运行、或近 6 小时内
+      #   已有成功运行，则跳过；手动在网页点 Run workflow 且勾选 force 时强制执行。
       # --------------------------------------------------------------------------------
       - name: Check duplicate scheduled run
         if: github.event_name == 'schedule' || github.event.inputs.force != 'true'
@@ -107,15 +107,20 @@ jobs:
               "Accept": "application/vnd.github+json",
               "User-Agent": "trendradar-guard"})
           data = json.load(urllib.request.urlopen(req, timeout=30))
-          cutoff = datetime.now(timezone.utc) - timedelta(hours=6)
+          now = datetime.now(timezone.utc)
+          bj_now = now + timedelta(hours=8)
+          # 北京时间当天 00:00 对应的 UTC 时刻
+          day_start = datetime(bj_now.year, bj_now.month, bj_now.day, tzinfo=timezone.utc) - timedelta(hours=8)
+          cutoff = now - timedelta(hours=6)
+          since = min(day_start, cutoff)  # 去重窗口：同一北京日内 或 近 6 小时
           recent = []
           for r in data.get("workflow_runs", []):
               if str(r["id"]) == run_id or r.get("conclusion") != "success":
                   continue
               created = datetime.strptime(r["created_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-              if created > cutoff:
+              if created > since:
                   recent.append(r)
-          print(f"近 6 小时内的成功运行: {len(recent)} 次")
+          print(f"去重窗口起点(UTC): {since:%Y-%m-%d %H:%M}，窗口内成功运行: {len(recent)} 次")
           with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
               fh.write("skip=%s\n" % ("true" if recent else "false"))
           PY
@@ -250,6 +255,7 @@ jobs:
       - name: Deploy to GitHub Pages
         if: success() && steps.guard.outputs.skip != 'true'
         id: pages_deploy
+        continue-on-error: true
         uses: actions/deploy-pages@v4
 
       # --------------------------------------------------------------------------------
